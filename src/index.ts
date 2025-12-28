@@ -48,7 +48,9 @@ app.use("/*", async (c, next) => {
   return auth(c, next)
 })
 
-app.get("/", (c) => c.text("Beans!"))
+app.get("/", async (c) => {
+  return c.html(await Bun.file("public/index.html").text())
+})
 
 // POST register
 app.post("/register", async (c) => {
