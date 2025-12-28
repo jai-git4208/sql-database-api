@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import { createWish, deleteWish, fulfillWish, listWishes, createUser, getUser } from "./db/queries"
+import { executeSql, executeSqlRead, listTables, createUser, getUser } from "./db/queries"
 import { basicAuth } from "hono/basic-auth"
 import { cors } from "hono/cors"
 
@@ -68,45 +68,33 @@ app.post("/register", async (c) => {
   }
 })
 
-// GET all wishes
-app.get("/api/wishes", (c) => {
+// GET tables
+app.get("/api/tables", (c) => {
   const user = c.get("user")
-  return c.json(listWishes(user))
+  return c.json(listTables(user))
 })
 
-// POST a new wish
-app.post("/api/wishes", async (c) => {
+// POST query
+app.post("/api/query", async (c) => {
   const user = c.get("user")
   const body = await c.req.json().catch(() => null)
-  const item = (body?.item ?? "").toString().trim()
+  const query = (body?.query ?? "").toString().trim()
+  const params = body?.params ?? []
 
-  if (!item) return c.json({ error: "item is required" }, 400)
+  if (!query) return c.json({ error: "query is required" }, 400)
 
-  return c.json(createWish(user, item), 201)
-})
-
-// PATCH (update) a wish
-app.patch("/api/wishes/:id/fulfill", (c) => {
-  const user = c.get("user")
-  const id = Number(c.req.param("id"))
-  if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400)
-
-  const res = fulfillWish(user, id)
-  if (!res) return c.json({ error: "not found" }, 404)
-
-  return c.json({ ok: true })
-})
-
-// DELETE a wish
-app.delete("/api/wishes/:id", (c) => {
-  const user = c.get("user")
-  const id = Number(c.req.param("id"))
-  if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400)
-
-  const res = deleteWish(user, id)
-  if (!res) return c.json({ error: "not found" }, 404)
-
-  return c.json({ ok: true })
+  try {
+    const isSelect = /^\s*SELECT/i.test(query)
+    let res
+    if (isSelect) {
+      res = executeSqlRead(user, query, params)
+    } else {
+      res = executeSql(user, query, params)
+    }
+    return c.json(res)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
 })
 
 const port = Number(process.env.PORT) || 3000

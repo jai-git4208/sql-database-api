@@ -13,15 +13,11 @@ usersSqlite.run(`
 export const usersDb = drizzle(usersSqlite)
 
 // Dynamic DB for each user
+export function getSqlite(username: string) {
+  return new Database(`wish_${username}.db`)
+}
+
 export function getDb(username: string) {
-    const sqlite = new Database(`wish_${username}.db`)
-    sqlite.run(`
-    CREATE TABLE IF NOT EXISTS wishes (
-      id integer PRIMARY KEY AUTOINCREMENT,
-      item text NOT NULL,
-      fulfilled integer NOT NULL DEFAULT 0,
-      created_at integer NOT NULL
-    )
-  `)
-    return drizzle(sqlite)
+  const sqlite = getSqlite(username)
+  return drizzle(sqlite)
 }

@@ -1,40 +1,20 @@
-import { getDb, usersDb } from "./index"
-import { wishes, users } from "./schema"
-import { eq, desc } from "drizzle-orm"
+import { getSqlite, usersDb } from "./index"
+import { users } from "./schema"
+import { eq } from "drizzle-orm"
 
-export function listWishes(username: string) {
-  return getDb(username).select().from(wishes).orderBy(desc(wishes.id)).all()
+export function executeSql(username: string, query: string, params: any[] = []) {
+  const db = getSqlite(username)
+  return db.prepare(query).run(...params)
 }
 
-export function createWish(username: string, item: string) {
-  const createdAt = Math.floor(Date.now() / 1000)
-
-  const res = getDb(username).insert(wishes).values({
-    item,
-    fulfilled: 0,
-    createdAt,
-  }).returning({ id: wishes.id }).get()
-
-  return res
+export function executeSqlRead(username: string, query: string, params: any[] = []) {
+  const db = getSqlite(username)
+  return db.prepare(query).all(...params)
 }
 
-export function fulfillWish(username: string, id: number) {
-  const res = getDb(username).update(wishes)
-    .set({ fulfilled: 1 })
-    .where(eq(wishes.id, id))
-    .returning({ id: wishes.id })
-    .get()
-
-  return res
-}
-
-export function deleteWish(username: string, id: number) {
-  const res = getDb(username).delete(wishes)
-    .where(eq(wishes.id, id))
-    .returning({ id: wishes.id })
-    .get()
-
-  return res
+export function listTables(username: string) {
+  const db = getSqlite(username)
+  return db.query("SELECT name FROM sqlite_master WHERE type='table'").all()
 }
 
 export function createUser(username: string, password: string) {

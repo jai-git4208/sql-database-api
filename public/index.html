@@ -1,21 +1,83 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wish List</title>
+    <title>Haxmas SQL Runner</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
-        .hidden { display: none; }
-        .error { color: red; }
-        input, button { padding: 0.5rem; margin: 0.25rem 0; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 0.5rem; border-bottom: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center; }
-        li.fulfilled { text-decoration: line-through; color: #888; }
+        body {
+            font-family: sans-serif;
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .error {
+            color: red;
+        }
+
+        input,
+        button,
+        textarea {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            height: 100px;
+            font-family: monospace;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 0.5rem;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f4f4f4;
+        }
+
+        .flex {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .sidebar {
+            width: 200px;
+            border-right: 1px solid #ccc;
+            padding-right: 1rem;
+        }
+
+        .main {
+            flex: 1;
+        }
+
+        .table-item {
+            cursor: pointer;
+            color: blue;
+            text-decoration: underline;
+            margin-bottom: 0.5rem;
+        }
     </style>
 </head>
+
 <body>
-    <h1>Wish List</h1>
+    <h1>Haxmas SQL Runner</h1>
 
     <div id="auth-section">
         <h2 id="auth-title">Login</h2>
@@ -27,19 +89,29 @@
     </div>
 
     <div id="app-section" class="hidden">
-        <p>Logged in as: <span id="current-user"></span> <button id="logout-btn">Logout</button></p>
-        
-        <form id="wish-form">
-            <input type="text" id="wish-item" placeholder="I wish for..." required>
-            <button type="submit">Make a Wish</button>
-        </form>
+        <p>User: <strong><span id="current-user"></span></strong> <button id="logout-btn"
+                style="width: auto;">Logout</button></p>
 
-        <ul id="wish-list"></ul>
+        <div class="flex">
+            <div class="sidebar">
+                <h3>Tables</h3>
+                <div id="table-list"></div>
+                <button onclick="refreshTables()">Refresh</button>
+            </div>
+            <div class="main">
+                <h3>Execute SQL</h3>
+                <form id="sql-form">
+                    <textarea id="sql-input" placeholder="SELECT * FROM ..."></textarea>
+                    <button type="submit">Run</button>
+                </form>
+                <div id="query-error" class="error"></div>
+                <div id="results"></div>
+            </div>
+        </div>
     </div>
 
     <script>
         const API_URL = 'http://localhost:3000';
-        let currentUser = null;
         let basicAuthHeader = null;
 
         const authSection = document.getElementById('auth-section');
@@ -51,27 +123,27 @@
         const registerBtn = document.getElementById('register-btn');
         const logoutBtn = document.getElementById('logout-btn');
         const currentUserSpan = document.getElementById('current-user');
-        const wishForm = document.getElementById('wish-form');
-        const wishItemInput = document.getElementById('wish-item');
-        const wishList = document.getElementById('wish-list');
+        const sqlForm = document.getElementById('sql-form');
+        const sqlInput = document.getElementById('sql-input');
+        const resultsDiv = document.getElementById('results');
+        const queryErrorDiv = document.getElementById('query-error');
+        const tableListDiv = document.getElementById('table-list');
 
         function setAuth(username, password) {
-            currentUser = username;
             basicAuthHeader = 'Basic ' + btoa(username + ':' + password);
             currentUserSpan.textContent = username;
             authSection.classList.add('hidden');
             appSection.classList.remove('hidden');
-            loadWishes();
+            refreshTables();
         }
 
         function clearAuth() {
-            currentUser = null;
             basicAuthHeader = null;
             authSection.classList.remove('hidden');
             appSection.classList.add('hidden');
-            wishList.innerHTML = '';
             usernameInput.value = '';
             passwordInput.value = '';
+            resultsDiv.innerHTML = '';
         }
 
         async function fetchAPI(endpoint, options = {}) {
@@ -88,10 +160,10 @@
             const password = passwordInput.value.trim();
             if (!username || !password) return;
 
-            // Test credentials
-            const testHeader = 'Basic ' + btoa(username + ':' + password);
-            const res = await fetch(API_URL + '/api/wishes', {
-                headers: { 'Authorization': testHeader }
+            // Test credentials by fetching tables
+            const authTest = 'Basic ' + btoa(username + ':' + password);
+            const res = await fetch(API_URL + '/api/tables', {
+                headers: { 'Authorization': authTest }
             });
 
             if (res.ok) {
@@ -114,8 +186,7 @@
             });
 
             if (res.ok) {
-                alert('Registered! You can now login.');
-                // Auto login? Maybe just let them click login
+                alert('Registered! Please login.');
             } else {
                 const data = await res.json();
                 authError.textContent = data.error || 'Registration failed';
@@ -124,52 +195,75 @@
 
         logoutBtn.addEventListener('click', clearAuth);
 
-        wishForm.addEventListener('submit', async (e) => {
+        sqlForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const item = wishItemInput.value.trim();
-            if (!item) return;
+            const query = sqlInput.value.trim();
+            if (!query) return;
 
-            const res = await fetchAPI('/api/wishes', {
+            queryErrorDiv.textContent = '';
+            resultsDiv.textContent = 'Running...';
+
+            const res = await fetchAPI('/api/query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item })
+                body: JSON.stringify({ query })
             });
 
+            const data = await res.json();
+
             if (res.ok) {
-                wishItemInput.value = '';
-                loadWishes();
+                renderResults(data);
+                refreshTables();
+            } else {
+                resultsDiv.innerHTML = '';
+                queryErrorDiv.textContent = data.error || 'Error executing query';
             }
         });
 
-        async function loadWishes() {
-            const res = await fetchAPI('/api/wishes');
-            if (!res.ok) return; // Should handle error
-            const wishes = await res.json();
-            renderWishes(wishes);
+        async function refreshTables() {
+            const res = await fetchAPI('/api/tables');
+            if (res.ok) {
+                const tables = await res.json();
+                tableListDiv.innerHTML = tables.map(t => `<div class="table-item" onclick="selectTable('${t.name}')">${t.name}</div>`).join('');
+            }
         }
 
-        function renderWishes(wishes) {
-            wishList.innerHTML = wishes.map(wish => `
-                <li class="${wish.fulfilled ? 'fulfilled' : ''}">
-                    <span>${wish.item}</span>
-                    <div>
-                        ${!wish.fulfilled ? `<button onclick="fulfillWish(${wish.id})">✅</button>` : ''}
-                        <button onclick="deleteWish(${wish.id})">❌</button>
-                    </div>
-                </li>
-            `).join('');
+        window.selectTable = (tableName) => {
+            sqlInput.value = `SELECT * FROM ${tableName}`;
+            sqlForm.dispatchEvent(new Event('submit'));
         }
 
-        window.fulfillWish = async (id) => {
-            const res = await fetchAPI(`/api/wishes/${id}/fulfill`, { method: 'PATCH' });
-            if (res.ok) loadWishes();
-        };
+        window.refreshTables = refreshTables;
 
-        window.deleteWish = async (id) => {
-            const res = await fetchAPI(`/api/wishes/${id}`, { method: 'DELETE' });
-            if (res.ok) loadWishes();
-        };
+        function renderResults(data) {
+            // Data could be an array of objects (SELECT) or a RunResult object (INSERT/UPDATE)
+            // Bun SQLite .run() returns { lastInsertRowid, changes }
+            // .all() returns [ ... ]
 
+            if (Array.isArray(data)) {
+                if (data.length === 0) {
+                    resultsDiv.innerHTML = '<p>No results.</p>';
+                    return;
+                }
+                const cols = Object.keys(data[0]);
+                const html = `
+                    <table>
+                        <thead>
+                            <tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr>
+                        </thead>
+                        <tbody>
+                            ${data.map(row => `<tr>${cols.map(c => `<td>${row[c]}</td>`).join('')}</tr>`).join('')}
+                        </tbody>
+                    </table>
+                    <p><i>${data.length} rows</i></p>
+                `;
+                resultsDiv.innerHTML = html;
+            } else {
+                // assume run result
+                resultsDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+        }
     </script>
 </body>
+
 </html>
