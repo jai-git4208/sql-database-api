@@ -1,7 +1,17 @@
 import { Hono } from "hono"
 import { createWish, deleteWish, fulfillWish, listWishes } from "./db/queries"
 
+import { basicAuth } from "hono/basic-auth"
+
 const app = new Hono()
+
+app.use(
+  "/*",
+  basicAuth({
+    username: "jai",
+    password: "what huh? no password for u",
+  })
+)
 
 app.get("/", (c) => c.text("Beans!"))
 
