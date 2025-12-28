@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wish List</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+        .hidden { display: none; }
+        .error { color: red; }
+        input, button { padding: 0.5rem; margin: 0.25rem 0; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 0.5rem; border-bottom: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center; }
+        li.fulfilled { text-decoration: line-through; color: #888; }
+    </style>
+</head>
+<body>
+    <h1>Wish List</h1>
+
+    <div id="auth-section">
+        <h2 id="auth-title">Login</h2>
+        <p id="auth-error" class="error"></p>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button id="login-btn">Login</button>
+        <button id="register-btn">Register</button>
+    </div>
+
+    <div id="app-section" class="hidden">
+        <p>Logged in as: <span id="current-user"></span> <button id="logout-btn">Logout</button></p>
+        
+        <form id="wish-form">
+            <input type="text" id="wish-item" placeholder="I wish for..." required>
+            <button type="submit">Make a Wish</button>
+        </form>
+
+        <ul id="wish-list"></ul>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:3000';
+        let currentUser = null;
+        let basicAuthHeader = null;
+
+        const authSection = document.getElementById('auth-section');
+        const appSection = document.getElementById('app-section');
+        const authError = document.getElementById('auth-error');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById('login-btn');
+        const registerBtn = document.getElementById('register-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const currentUserSpan = document.getElementById('current-user');
+        const wishForm = document.getElementById('wish-form');
+        const wishItemInput = document.getElementById('wish-item');
+        const wishList = document.getElementById('wish-list');
+
+        function setAuth(username, password) {
+            currentUser = username;
+            basicAuthHeader = 'Basic ' + btoa(username + ':' + password);
+            currentUserSpan.textContent = username;
+            authSection.classList.add('hidden');
+            appSection.classList.remove('hidden');
+            loadWishes();
+        }
+
+        function clearAuth() {
+            currentUser = null;
+            basicAuthHeader = null;
+            authSection.classList.remove('hidden');
+            appSection.classList.add('hidden');
+            wishList.innerHTML = '';
+            usernameInput.value = '';
+            passwordInput.value = '';
+        }
+
+        async function fetchAPI(endpoint, options = {}) {
+            const headers = { ...options.headers };
+            if (basicAuthHeader) {
+                headers['Authorization'] = basicAuthHeader;
+            }
+            const res = await fetch(API_URL + endpoint, { ...options, headers });
+            return res;
+        }
+
+        loginBtn.addEventListener('click', async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (!username || !password) return;
+
+            // Test credentials
+            const testHeader = 'Basic ' + btoa(username + ':' + password);
+            const res = await fetch(API_URL + '/api/wishes', {
+                headers: { 'Authorization': testHeader }
+            });
+
+            if (res.ok) {
+                setAuth(username, password);
+                authError.textContent = '';
+            } else {
+                authError.textContent = 'Invalid credentials';
+            }
+        });
+
+        registerBtn.addEventListener('click', async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (!username || !password) return;
+
+            const res = await fetch(API_URL + '/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (res.ok) {
+                alert('Registered! You can now login.');
+                // Auto login? Maybe just let them click login
+            } else {
+                const data = await res.json();
+                authError.textContent = data.error || 'Registration failed';
+            }
+        });
+
+        logoutBtn.addEventListener('click', clearAuth);
+
+        wishForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const item = wishItemInput.value.trim();
+            if (!item) return;
+
+            const res = await fetchAPI('/api/wishes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item })
+            });
+
+            if (res.ok) {
+                wishItemInput.value = '';
+                loadWishes();
+            }
+        });
+
+        async function loadWishes() {
+            const res = await fetchAPI('/api/wishes');
+            if (!res.ok) return; // Should handle error
+            const wishes = await res.json();
+            renderWishes(wishes);
+        }
+
+        function renderWishes(wishes) {
+            wishList.innerHTML = wishes.map(wish => `
+                <li class="${wish.fulfilled ? 'fulfilled' : ''}">
+                    <span>${wish.item}</span>
+                    <div>
+                        ${!wish.fulfilled ? `<button onclick="fulfillWish(${wish.id})">✅</button>` : ''}
+                        <button onclick="deleteWish(${wish.id})">❌</button>
+                    </div>
+                </li>
+            `).join('');
+        }
+
+        window.fulfillWish = async (id) => {
+            const res = await fetchAPI(`/api/wishes/${id}/fulfill`, { method: 'PATCH' });
+            if (res.ok) loadWishes();
+        };
+
+        window.deleteWish = async (id) => {
+            const res = await fetchAPI(`/api/wishes/${id}`, { method: 'DELETE' });
+            if (res.ok) loadWishes();
+        };
+
+    </script>
+</body>
+</html>

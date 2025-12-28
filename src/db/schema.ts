@@ -7,3 +7,8 @@ export const wishes = sqliteTable("wishes", {
   fulfilled: integer("fulfilled").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 })
+
+export const users = sqliteTable("users", {
+  username: text("username").primaryKey(),
+  password: text("password").notNull(),
+})
